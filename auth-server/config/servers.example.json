@@ -1,0 +1,7 @@
+{
+  "servers": [
+    { "id": "main01", "name": "Main",   "url": "http://line.example.com:8080",  "enabled": true },
+    { "id": "back02", "name": "Second", "url": "http://tv.example.net:2095",    "enabled": true },
+    { "id": "old003", "name": "Old",    "url": "http://old.example.org",        "enabled": false }
+  ]
+}

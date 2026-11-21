@@ -1,0 +1,29 @@
+services:
+  auth:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data              # SQLite database (back this folder up)
+      - ./config:/config          # servers.json (the admin page writes it), app_config.json
+    expose:
+      - "8000"                    # only Caddy can reach it
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    env_file: .env
+    depends_on:
+      - auth
+
+volumes:
+  caddy_data:
+  caddy_config:
