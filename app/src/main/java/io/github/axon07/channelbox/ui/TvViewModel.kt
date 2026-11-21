@@ -1350,7 +1350,10 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
             // Clean up after playlists removed in an older version (or while a reload was running) –
             // after the channel is on, so it never delays the picture.
             runCatching { repo.dropRemovedPlaylists() }
-            val stale = s.refreshHours > 0 && System.currentTimeMillis() - s.lastRefresh > s.refreshHours * HOUR
+            // Signed in through the login server: check the account (moved server, expired, blocked).
+            val accountChanged = runCatching { repo.checkAccount() }.getOrDefault(false)
+            val stale = accountChanged ||
+                (s.refreshHours > 0 && System.currentTimeMillis() - s.lastRefresh > s.refreshHours * HOUR)
             // Give the channel a few seconds to start before the reload downloads the playlist:
             // on one-connection accounts the two would fight over the connection.
             if (stale && hasChannels && _current.value != null) delay(10_000)
@@ -1791,6 +1794,55 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshNow() = reload { }
 
     fun savePlaylist(p: Playlist) = reload { c.settings.savePlaylist(p) }
+
+    // ---- Sign-in through the login server (when BuildConfig.AUTH_URL is set) ------------------
+
+    sealed interface SignInState {
+        data object Idle : SignInState
+        data object Busy : SignInState
+        data class Failed(val message: String) : SignInState
+    }
+
+    private val _signIn = MutableStateFlow<SignInState>(SignInState.Idle)
+    val signInState: StateFlow<SignInState> = _signIn.asStateFlow()
+
+    /** Checks the login with the login server; on success saves it as the account playlist and loads it. */
+    fun signIn(username: String, password: String) {
+        if (_signIn.value == SignInState.Busy) return
+        _signIn.value = SignInState.Busy
+        viewModelScope.launch {
+            when (val r = io.github.axon07.channelbox.data.AccountAuth.login(c.http, username.trim(), password)) {
+                is io.github.axon07.channelbox.data.AccountAuth.Result.Ok -> {
+                    io.github.axon07.channelbox.data.AccountAuth.notice.value = null
+                    _signIn.value = SignInState.Idle
+                    savePlaylist(
+                        Playlist(
+                            id = io.github.axon07.channelbox.data.AccountAuth.PLAYLIST_ID,
+                            name = io.github.axon07.channelbox.data.AccountAuth.PLAYLIST_NAME,
+                            type = io.github.axon07.channelbox.data.SourceType.XTREAM,
+                            xtServer = r.server, xtUser = username.trim(), xtPass = password,
+                        )
+                    )
+                }
+                is io.github.axon07.channelbox.data.AccountAuth.Result.Rejected -> _signIn.value = SignInState.Failed(r.message)
+                is io.github.axon07.channelbox.data.AccountAuth.Result.Unavailable -> _signIn.value = SignInState.Failed(r.message)
+            }
+        }
+    }
+
+    /** The login server signed this box out (expired, blocked, password changed): stop the picture. */
+    fun stopAfterSignOut() {
+        player.stop()
+        _current.value = null
+    }
+
+    /** Signs out: forgets the login and its channels; the sign-in screen comes back. */
+    fun signOut() {
+        player.stop()
+        _current.value = null
+        io.github.axon07.channelbox.data.AccountAuth.notice.value = null
+        removePlaylist(io.github.axon07.channelbox.data.AccountAuth.PLAYLIST_ID)
+    }
 
     fun removePlaylist(id: String) = reload {
         // Finish the clean-up even if another change (e.g. adding a playlist) starts a new reload.

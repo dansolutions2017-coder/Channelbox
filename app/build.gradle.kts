@@ -18,6 +18,10 @@ val appVersionCode = appVersionName.split('.', '-').take(3).map { it.toIntOrNull
 // The permanent release key comes from environment variables (GitHub secrets in CI).
 val releaseKeystore: String? = System.getenv("SIGNING_KEYSTORE_PATH")
 
+// Login server address: -PauthUrl=… on the command line, else channelbox.authUrl in gradle.properties.
+val authUrl: String = ((findProperty("authUrl") ?: findProperty("channelbox.authUrl")) as String?)
+    ?.trim()?.trimEnd('/').orEmpty()
+
 android {
     namespace = "io.github.axon07.channelbox"
     compileSdk = 35
@@ -30,7 +34,10 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
         // GitHub repo the in-app updater checks for new releases.
-        buildConfigField("String", "UPDATE_REPO", "\"Axon07/Channelbox\"")
+        buildConfigField("String", "UPDATE_REPO", "\"dansolutions2017-coder/Channelbox\"")
+        // Your login server (see gradle.properties → channelbox.authUrl). Empty = the original
+        // Channelbox behaviour: users add their own M3U / Xtream / Stalker playlists.
+        buildConfigField("String", "AUTH_URL", "\"$authUrl\"")
     }
 
     signingConfigs {

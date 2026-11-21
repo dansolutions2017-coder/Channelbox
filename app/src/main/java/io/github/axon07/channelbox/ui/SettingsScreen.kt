@@ -281,7 +281,25 @@ private fun PlaylistSettings(
 ) {
     val counts by vm.playlistCounts.collectAsStateWithLifecycle()
     val errors by vm.playlistErrors.collectAsStateWithLifecycle()
-    settings.playlists.forEach { p ->
+    // Signed in through the login server: one account, no playlist editing.
+    val accountMode = io.github.axon07.channelbox.data.AccountAuth.enabled
+    if (accountMode) {
+        val account = settings.playlists.firstOrNull { it.id == io.github.axon07.channelbox.data.AccountAuth.PLAYLIST_ID }
+        var confirmSignOut by remember { mutableStateOf(false) }
+        SettingCard(
+            title = if (confirmSignOut) "Press again to sign out" else "Sign out",
+            description = (account?.let { "Signed in as ${it.xtUser}" + (counts[it.id]?.let { n -> " · $n channels" } ?: "") }
+                ?: "Not signed in") + (errors[io.github.axon07.channelbox.data.AccountAuth.PLAYLIST_ID]?.let { " · couldn't load: $it" } ?: ""),
+            highlight = confirmSignOut,
+            onClick = {
+                if (confirmSignOut) {
+                    confirmSignOut = false
+                    vm.signOut()
+                } else confirmSignOut = true
+            },
+        )
+    }
+    if (!accountMode) settings.playlists.forEach { p ->
         val n = counts[p.id] ?: if (p.id == SettingsStore.LEGACY_ID) counts[null] else null
         val error = errors[p.id]
         SettingCard(
@@ -295,13 +313,13 @@ private fun PlaylistSettings(
             onClick = { onPlaylist(p.id) },
         )
     }
-    SettingCard(
+    if (!accountMode) SettingCard(
         title = if (settings.playlists.isEmpty()) "Add your TV service" else "Add another playlist",
         description = "M3U link or Xtream Codes login. Channels from every playlist are shown together.",
         value = "Add",
         onClick = { onEditSource(null) },
     )
-    SettingCard(
+    if (!accountMode) SettingCard(
         title = "Jellyfin",
         description = errors[io.github.axon07.channelbox.data.JellyfinClient.PLAYLIST_ID]?.let { "Last load failed: $it" }
             ?: "Show movies & shows from your own Jellyfin server, next to or instead of your provider's",
@@ -354,14 +372,14 @@ private fun PlaylistSettings(
     val openFile = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.restoreFrom(it) } }
-    SettingCard(
+    if (!accountMode) SettingCard(
         title = "Back up data",
         description = "Save playlists, settings, favourites and channel changes to a file. It includes your logins – keep it private",
         onClick = {
             try { saveFile.launch(vm.backupFileName()) } catch (e: android.content.ActivityNotFoundException) { vm.backupToDownloads() }
         },
     )
-    SettingCard(
+    if (!accountMode) SettingCard(
         title = "Restore data",
         description = "Load a backup file. Replaces your current settings, favourites and channel changes",
         onClick = {

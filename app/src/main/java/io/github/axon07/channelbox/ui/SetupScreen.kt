@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +70,11 @@ fun SetupScreen(
     /** Opens Settings → Network & VPN (DNS, proxy, VPN, user agent). */
     onNetwork: () -> Unit,
 ) {
+    // This build signs in through your login server: username and password only.
+    if (io.github.axon07.channelbox.data.AccountAuth.enabled) {
+        AccountSignIn(refreshState = refreshState, vm = vm, onDone = onDone, onNetwork = onNetwork)
+        return
+    }
     val id = rememberSaveable { initial?.id ?: Playlist.newId() }
     var type by rememberSaveable {
         mutableStateOf(initial?.type?.takeIf { it == SourceType.XTREAM || it == SourceType.STALKER } ?: SourceType.M3U)
@@ -269,6 +275,113 @@ fun SetupScreen(
             }
         }
         if (showPhone) PhonePanel(phoneUrl)
+    }
+}
+
+/**
+ * Sign-in for builds with a login server (BuildConfig.AUTH_URL): the customer types only the
+ * username and password; the login server picks the server. Also shown after being signed out,
+ * with the reason (expired, blocked, password changed).
+ */
+@Composable
+private fun AccountSignIn(
+    refreshState: RefreshState,
+    vm: TvViewModel,
+    onDone: () -> Unit,
+    onNetwork: () -> Unit,
+) {
+    val notice by io.github.axon07.channelbox.data.AccountAuth.notice.collectAsState()
+    val rememberedUser by io.github.axon07.channelbox.data.AccountAuth.lastUsername.collectAsState()
+    val signIn by vm.signInState.collectAsState()
+    var user by rememberSaveable { mutableStateOf(rememberedUser) }
+    var pass by rememberSaveable { mutableStateOf("") }
+    var submitted by remember { mutableStateOf(false) }
+    var sawRunning by remember { mutableStateOf(false) }
+
+    // Leave once the channels from this sign-in are loaded (the guide may keep loading behind).
+    LaunchedEffect(refreshState, submitted) {
+        if (!submitted) return@LaunchedEffect
+        if (refreshState is RefreshState.Running) sawRunning = true
+        if (sawRunning && (refreshState is RefreshState.Done || (refreshState as? RefreshState.Running)?.background == true)) onDone()
+    }
+    LaunchedEffect(signIn) {
+        if (signIn is TvViewModel.SignInState.Failed) submitted = false
+    }
+
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(50)
+        runCatching { first.requestFocus() }
+    }
+
+    val checking = signIn is TvViewModel.SignInState.Busy
+    val loading = submitted && !checking && refreshState is RefreshState.Running
+    val canSubmit = !checking && !loading && user.isNotBlank() && pass.isNotEmpty()
+    val submit = {
+        if (canSubmit) {
+            submitted = true
+            sawRunning = false
+            vm.signIn(user, pass)
+        }
+    }
+
+    Box(
+        Modifier.fillMaxSize().background(Palette.Background).verticalScroll(rememberScrollState()),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(Modifier.widthIn(max = 520.dp).padding(horizontal = 48.dp, vertical = 40.dp)) {
+            Text("Sign in", fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = Palette.Text)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Enter the username and password you received with your subscription.",
+                fontSize = 13.sp, color = Palette.TextDim, lineHeight = 19.sp,
+            )
+            notice?.let {
+                Spacer(Modifier.height(14.dp))
+                Text(it, fontSize = 13.sp, color = Palette.Error, lineHeight = 19.sp)
+            }
+            Spacer(Modifier.height(24.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                TvTextField("Username", user, { user = it }, fieldModifier = Modifier.focusRequester(first))
+                TvTextField("Password", pass, { pass = it }, password = true)
+            }
+            Spacer(Modifier.height(24.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PrimaryButton(
+                    when {
+                        checking -> "Signing in…"
+                        loading -> "Loading channels…"
+                        else -> "Sign in"
+                    },
+                    enabled = canSubmit,
+                    onClick = { submit() },
+                )
+                Spacer(Modifier.width(16.dp))
+                val status = when {
+                    signIn is TvViewModel.SignInState.Failed -> (signIn as TvViewModel.SignInState.Failed).message to Palette.Error
+                    loading -> (refreshState as RefreshState.Running).message to Palette.TextDim
+                    submitted && refreshState is RefreshState.Failed -> refreshState.message to Palette.Error
+                    else -> null
+                }
+                status?.let { (text, color) ->
+                    Text(
+                        text, color = color, fontSize = 13.sp,
+                        maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Spacer(Modifier.height(28.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(SetupStyle.Line))
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Can't connect? Your internet provider may be blocking it – try another DNS, a proxy or a VPN.",
+                    fontSize = 12.sp, lineHeight = 17.sp, color = Palette.TextDim, modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(16.dp))
+                QuietButton("Network & VPN settings", onClick = onNetwork)
+            }
+        }
     }
 }
 

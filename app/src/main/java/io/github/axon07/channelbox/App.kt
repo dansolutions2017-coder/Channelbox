@@ -28,6 +28,7 @@ class App : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        io.github.axon07.channelbox.data.AccountAuth.init(this)
         val settings = SettingsStore(this)
         // Settings are read once here (one disk read): network options (proxy, DNS, user agent –
         // changing them restarts the app) and the language, before the first screen draws.

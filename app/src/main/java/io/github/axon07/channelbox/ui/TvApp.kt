@@ -198,6 +198,15 @@ private fun TvAppContent(vm: TvViewModel, settings: AppSettings) {
     }
     /** Playlist being edited on the setup screen; null = adding a new one. */
     var setupPlaylistId by remember { mutableStateOf<String?>(null) }
+    // Signed in through the login server and then signed out (expired, blocked, password changed,
+    // or "Sign out" in Settings): stop watching and go back to the sign-in screen.
+    LaunchedEffect(settings.hasSource) {
+        if (io.github.axon07.channelbox.data.AccountAuth.enabled && !settings.hasSource && mode != Mode.SETUP) {
+            vm.stopAfterSignOut()
+            setupPlaylistId = null
+            mode = Mode.SETUP
+        }
+    }
     /** Settings opened from first-time setup for network options. */
     var settingsFromSetup by remember { mutableStateOf(false) }
     /** When the groups menu was opened (for [groupsBack]). */
