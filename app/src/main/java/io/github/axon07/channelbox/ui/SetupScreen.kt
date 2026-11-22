@@ -164,7 +164,7 @@ fun SetupScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    if (firstRun) "Enter the details from your IPTV provider. Channelbox doesn't come with any channels. You can add more playlists later in Settings."
+                    if (firstRun) "Enter the details from your IPTV provider. Dan Media Box doesn't come with any channels. You can add more playlists later in Settings."
                     else "Channels from all your playlists are shown together, and each playlist also gets its own entry in the groups menu.",
                     fontSize = 13.sp, color = Palette.TextDim, lineHeight = 19.sp,
                 )

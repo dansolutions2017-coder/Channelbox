@@ -84,9 +84,9 @@ private enum class SettingsCategory(val title: String, val blurb: String) {
     NETWORK("Network & VPN", "VPN, proxy and private DNS"),
     RECORDINGS("Recordings", "Where recordings are saved"),
     STARTUP("Start-up & exit", "Make it behave like a cable box"),
-    LANGUAGE("Language", "The language Channelbox uses"),
+    LANGUAGE("Language", "The language Dan Media Box uses"),
     PARENTAL("Parental & hidden", "PIN, locked and hidden channels"),
-    UPDATES("Updates", "Keep Channelbox up to date"),
+    UPDATES("Updates", "Keep Dan Media Box up to date"),
     ABOUT("About", "Version and this device"),
 }
 
@@ -188,7 +188,7 @@ fun SettingsScreen(
                 modifier = Modifier.padding(start = 10.dp),
             )
             Text(
-                "Channelbox ${vm.appVersion}", fontSize = 12.sp, color = Color(0xFF7D8A9A),
+                "Dan Media Box ${vm.appVersion}", fontSize = 12.sp, color = Color(0xFF7D8A9A),
                 modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 18.dp),
             )
             SettingsCategory.entries.forEachIndexed { i, c ->
@@ -560,7 +560,7 @@ private fun NetworkSettingsList(settings: AppSettings, vm: TvViewModel, openPage
     if (vm.networkNeedsRestart(net)) {
         SettingCard(
             title = "Restart to apply",
-            description = "Proxy and DNS changes take effect after Channelbox restarts",
+            description = "Proxy and DNS changes take effect after Dan Media Box restarts",
             value = "Restart now",
             highlight = true,
             onClick = { SetTopBox.restart(context) },
@@ -569,7 +569,7 @@ private fun NetworkSettingsList(settings: AppSettings, vm: TvViewModel, openPage
     SettingCard(
         title = "VPN (WireGuard)",
         description = when (val v = vpn) {
-            VpnManager.State.On -> "Connected" + if (net.vpnAllApps) " · whole box" else " · Channelbox only"
+            VpnManager.State.On -> "Connected" + if (net.vpnAllApps) " · whole box" else " · Dan Media Box only"
             VpnManager.State.Connecting -> "Connecting…"
             is VpnManager.State.Failed -> "Couldn't connect: ${v.message}"
             VpnManager.State.Off -> if (net.vpnConfig.isBlank()) "Add a WireGuard config from your VPN provider first" else "Off"
@@ -600,7 +600,7 @@ private fun NetworkSettingsList(settings: AppSettings, vm: TvViewModel, openPage
     )
     SettingCard(
         title = "Proxy",
-        description = "Send Channelbox's traffic through an HTTP or SOCKS5 proxy",
+        description = "Send Dan Media Box's traffic through an HTTP or SOCKS5 proxy",
         value = when (net.proxyType) {
             "http" -> "HTTP · ${net.proxyHost}:${net.proxyPort}"
             "socks5" -> "SOCKS5 · ${net.proxyHost}:${net.proxyPort}"
@@ -610,7 +610,7 @@ private fun NetworkSettingsList(settings: AppSettings, vm: TvViewModel, openPage
     )
     SettingCard(
         title = "User agent",
-        description = "How Channelbox identifies itself. Some providers only allow certain players.",
+        description = "How Dan Media Box identifies itself. Some providers only allow certain players.",
         value = UserAgent.presetName(net.userAgent),
         onClick = { openPage(Page.USER_AGENT) },
     )
@@ -731,7 +731,7 @@ private fun StartupSettings(settings: AppSettings, vm: TvViewModel, onExit: () -
     val context = LocalContext.current
     SettingCard(
         title = "Turn on last channel on app start",
-        description = "Off: Channelbox opens on the TV guide instead of playing",
+        description = "Off: Dan Media Box opens on the TV guide instead of playing",
         toggle = settings.playLastOnStart,
         onClick = { vm.setPlayLastOnStart(!settings.playLastOnStart) },
     )
@@ -764,7 +764,7 @@ private fun StartupSettings(settings: AppSettings, vm: TvViewModel, onExit: () -
     if (SetTopBox.needsOverlayPermission()) {
         SettingCard(
             title = "Permission to start by itself",
-            description = if (canAutoStart) "Allowed – Channelbox can open on power-on and wake"
+            description = if (canAutoStart) "Allowed – Dan Media Box can open on power-on and wake"
             else "Needed for both options above: allow \"Display over other apps\"",
             value = if (canAutoStart) "Granted" else "Allow",
             onClick = {
@@ -780,7 +780,7 @@ private fun StartupSettings(settings: AppSettings, vm: TvViewModel, onExit: () -
     }
     SettingCard(
         title = "Use as home screen",
-        description = if (isHome) "Press Home and choose Channelbox → Always" else "Home button opens live TV instead of the Android home screen",
+        description = if (isHome) "Press Home and choose Dan Media Box → Always" else "Home button opens live TV instead of the Android home screen",
         toggle = isHome,
         onClick = {
             SetTopBox.setHomeScreen(context, !isHome)
@@ -794,7 +794,7 @@ private fun StartupSettings(settings: AppSettings, vm: TvViewModel, onExit: () -
         onClick = { openPage(Page.BACK) },
     )
     SettingCard(
-        title = "Exit Channelbox",
+        title = "Exit Dan Media Box",
         description = "Close the app and stop playback",
         value = "Exit",
         onClick = onExit,
@@ -835,12 +835,12 @@ private fun UpdateSettings(settings: AppSettings, vm: TvViewModel) {
 @Composable
 private fun AboutSettings(vm: TvViewModel) {
     val widevine = remember { vm.widevineLevel() }
-    InfoCard("Version", "Channelbox ${vm.appVersion} (build ${BuildConfig.VERSION_CODE})")
+    InfoCard("Version", "Dan Media Box ${vm.appVersion} (build ${BuildConfig.VERSION_CODE})")
     InfoCard("Device", "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}")
     InfoCard("Widevine security level", "$widevine – L1 = hardware, L3 = software")
     InfoCard("Audio decoding", "Box decoders, plus bundled FFmpeg for Dolby Digital, DD+, DTS and TrueHD")
-    InfoCard("Source code", "github.com/Axon07/Channelbox · free and open source under GPL-3.0")
-    InfoCard("Channels", "Channelbox is only a player – channels come from your own TV service")
+    InfoCard("Source code", "github.com/dansolutions2017-coder/Channelbox · based on Channelbox (github.com/Axon07/Channelbox) · free and open source under GPL-3.0")
+    InfoCard("Channels", "Dan Media Box is a player – channels come from your TV service")
 }
 
 // ---- Sub-pages with text fields ---------------------------------------------------------------------
@@ -884,7 +884,7 @@ private fun SubPage(
             Spacer(Modifier.height(10.dp))
             SettingCard(
                 title = "Send all apps through the VPN",
-                description = if (allApps) "The whole box uses the VPN" else "Only Channelbox uses the VPN (recommended)",
+                description = if (allApps) "The whole box uses the VPN" else "Only Dan Media Box uses the VPN (recommended)",
                 toggle = allApps,
                 onClick = { allApps = !allApps },
             )
@@ -926,7 +926,7 @@ private fun SubPage(
             var port by remember { mutableStateOf(net.proxyPort.takeIf { it > 0 }?.toString().orEmpty()) }
             var user by remember { mutableStateOf(net.proxyUser) }
             var pass by remember { mutableStateOf(net.proxyPass) }
-            PageHeader("Proxy", "All of Channelbox's traffic (playlists, guide, streams) goes through the proxy. Restart to apply.")
+            PageHeader("Proxy", "All of Dan Media Box's traffic (playlists, guide, streams) goes through the proxy. Restart to apply.")
             ChoiceList(
                 options = listOf("none" to "Off", "http" to "HTTP proxy", "socks5" to "SOCKS5 proxy"),
                 selected = type,
@@ -991,7 +991,7 @@ private fun SubPage(
             val presetKeys = UserAgent.PRESETS.values.toList()
             var custom by remember { mutableStateOf(net.userAgent.takeIf { it !in presetKeys }.orEmpty()) }
             var showCustom by remember { mutableStateOf(net.userAgent !in presetKeys) }
-            PageHeader("User agent", "How Channelbox introduces itself to servers. Some providers only allow certain players.")
+            PageHeader("User agent", "How Dan Media Box introduces itself to servers. Some providers only allow certain players.")
             ChoiceList(
                 options = UserAgent.PRESETS.map { (name, value) -> value to name } + ("__custom" to "Custom…"),
                 selected = if (showCustom) "__custom" else net.userAgent,
@@ -1085,7 +1085,7 @@ private fun SubPage(
             )
         }
         Page.BUFFER -> {
-            PageHeader("Buffer size", "How much video is loaded ahead. Takes effect the next time Channelbox starts.")
+            PageHeader("Buffer size", "How much video is loaded ahead. Takes effect the next time Dan Media Box starts.")
             ChoiceList(
                 options = BUFFER_CHOICES,
                 selected = settings.bufferSize,
@@ -1093,7 +1093,7 @@ private fun SubPage(
             )
         }
         Page.QUALITY -> {
-            PageHeader("Maximum quality", "Channelbox picks the best quality your connection can handle, up to this limit.")
+            PageHeader("Maximum quality", "Dan Media Box picks the best quality your connection can handle, up to this limit.")
             ChoiceList(
                 options = QUALITY_CHOICES.map { it.first.toString() to it.second },
                 selected = settings.maxQuality.toString(),

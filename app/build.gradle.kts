@@ -27,7 +27,8 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.axon07.channelbox"
+        // Dan Media Box's own app id (the code keeps its original package name; that's fine).
+        applicationId = "fyi.danmed.mediabox"
         // 21 = Android 5.0, so old/cheap Android TV boxes still work.
         minSdk = 21
         targetSdk = 35

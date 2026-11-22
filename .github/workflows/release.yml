@@ -46,8 +46,8 @@ jobs:
         run: ./gradlew --no-daemon assembleRelease -PappVersionName="${GITHUB_REF_NAME#v}"
 
       - name: Rename APK
-        # A fixed name keeps .../releases/latest/download/channelbox.apk (and Downloader codes) always current.
-        run: cp app/build/outputs/apk/release/app-release.apk channelbox.apk
+        # A fixed name keeps .../releases/latest/download/danmediabox.apk always current.
+        run: cp app/build/outputs/apk/release/app-release.apk danmediabox.apk
 
       - name: List of changes
         # Every change since the previous release, one line each, from the commit titles only
@@ -64,12 +64,12 @@ jobs:
               | sed -E 's/^[[:space:]]+//; /^$/d; s/^(.)/\U\1/; s/^/- /' \
               | awk '!seen[$0]++'
             echo
-            echo "**Install:** Downloader code \`5502923\`, or download \`channelbox.apk\` below. Boxes already running Channelbox will offer the update."
+            echo "**Install:** download \`danmediabox.apk\` below, or use https://github.com/dansolutions2017-coder/Channelbox/releases/latest/download/danmediabox.apk – boxes already running Dan Media Box will offer the update."
           } > release-notes.md
           cat release-notes.md
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: channelbox.apk
+          files: danmediabox.apk
           body_path: release-notes.md
           append_body: true # keeps anything you wrote in the release, adds the list below it

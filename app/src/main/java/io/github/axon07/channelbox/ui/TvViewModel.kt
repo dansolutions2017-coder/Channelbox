@@ -700,9 +700,9 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
             // When they come back from that screen, resumePendingUpdate() carries on by itself.
             if (updater.openInstallPermission()) {
                 pendingInstall = true
-                showToast("Turn on \"Allow\" for Channelbox, then press Back")
+                showToast("Turn on \"Allow\" for Dan Media Box, then press Back")
             } else {
-                showToast("Allow \"Install unknown apps\" for Channelbox in Android settings")
+                showToast("Allow \"Install unknown apps\" for Dan Media Box in Android settings")
             }
             return
         }
@@ -729,7 +729,7 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
         if (!pendingInstall) return
         pendingInstall = false
         if (updater.canInstall()) startUpdate()
-        else showToast("Channelbox still isn't allowed to install apps")
+        else showToast("Dan Media Box still isn't allowed to install apps")
     }
 
     fun dismissUpdate(skipThisVersion: Boolean) {
@@ -940,23 +940,23 @@ class TvViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPreferSoftwareAudio(on: Boolean) = viewModelScope.launch {
         c.settings.setPreferSoftwareAudio(on)
-        showToast("Takes effect the next time Channelbox starts")
+        showToast("Takes effect the next time Dan Media Box starts")
     }
     fun setSoftwareVideo(on: Boolean) = viewModelScope.launch {
         c.settings.setSoftwareVideo(on)
-        showToast("Takes effect the next time Channelbox starts")
+        showToast("Takes effect the next time Dan Media Box starts")
     }
     fun setDolbyVision(mode: String) = viewModelScope.launch {
         c.settings.setDolbyVision(mode)
-        showToast("Takes effect the next time Channelbox starts")
+        showToast("Takes effect the next time Dan Media Box starts")
     }
     fun setBufferSize(size: String) = viewModelScope.launch {
         c.settings.setBufferSize(size)
-        showToast("Takes effect the next time Channelbox starts")
+        showToast("Takes effect the next time Dan Media Box starts")
     }
     fun setAudioPassthrough(on: Boolean) = viewModelScope.launch {
         c.settings.setAudioPassthrough(on)
-        showToast("Takes effect the next time Channelbox starts")
+        showToast("Takes effect the next time Dan Media Box starts")
     }
     fun setAutoFrameRate(on: Boolean) = viewModelScope.launch { c.settings.setAutoFrameRate(on) }
 

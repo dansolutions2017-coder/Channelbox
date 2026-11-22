@@ -1576,7 +1576,7 @@ private fun TvAppContent(vm: TvViewModel, settings: AppSettings) {
             Mode.UPDATE -> {
                 when (val u = update) {
                     is TvViewModel.UpdateState.Available -> ActionDialog(
-                        title = "Update available: Channelbox ${u.release.version}",
+                        title = "Update available: Dan Media Box ${u.release.version}",
                         subtitle = "You have ${vm.appVersion}." +
                             (u.release.notes.lineSequence().firstOrNull { it.isNotBlank() }
                                 ?.let { "\n" + it.trim().removePrefix("#").removePrefix("-").trim() } ?: ""),
@@ -1587,7 +1587,7 @@ private fun TvAppContent(vm: TvViewModel, settings: AppSettings) {
                         ),
                     )
                     is TvViewModel.UpdateState.Downloading -> ActionDialog(
-                        title = "Downloading Channelbox ${u.release.version}… ${u.percent}%",
+                        title = "Downloading Dan Media Box ${u.release.version}… ${u.percent}%",
                         subtitle = "Android will ask you to confirm the update when it's done.",
                         actions = listOf(DialogAction("Hide") { vm.dismissUpdate(skipThisVersion = false) }),
                     )
@@ -1673,7 +1673,7 @@ private fun TvAppContent(vm: TvViewModel, settings: AppSettings) {
                 }
             }
             Mode.EXIT_CONFIRM -> ActionDialog(
-                title = "Exit Channelbox?",
+                title = "Exit Dan Media Box?",
                 subtitle = null,
                 actions = listOf(
                     DialogAction("Exit") { exitApp() },
