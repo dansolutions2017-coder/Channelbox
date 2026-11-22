@@ -12,6 +12,7 @@ import contextlib
 import logging
 import re
 import time
+from datetime import datetime, timezone
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -20,6 +21,7 @@ from starlette.routing import Route
 
 from . import xtream
 from .config import ServerList, Settings, load_app_config
+from .guard import ResultCache, ServerGuard, servers_signature
 from .ratelimit import SlidingWindow
 from .store import Store
 
@@ -64,38 +66,48 @@ def client_ip(request: Request, settings: Settings) -> str:
     return request.client.host if request.client else "?"
 
 
-async def find_account(servers: ServerList, store: Store, username: str, password: str, timeout: float):
-    """Which server has this login? Returns (result or None, unreachable_count, remembered_was_down).
+# A single login check never spends longer than this asking IPTV servers in total.
+LOOKUP_BUDGET_SECONDS = 20
 
-    1. The server this login worked on last time is asked first (fast path, one request).
-    2. Otherwise every other enabled server is asked at the same time; the first one in your list
-       order that knows the login wins.
+
+async def find_account(servers: ServerList, store: Store, guard: ServerGuard,
+                       username: str, password: str, timeout: float):
+    """Which server has this login? Returns (result or None, skipped_or_unreachable, remembered_was_down).
+
+    Servers are asked ONE AT A TIME and the search stops at the first that knows the login:
+    1. the server this login worked on last time;
+    2. then the others, in your list order.
+    A server that just failed to answer, or has had too many checks this minute, is skipped.
     """
     enabled = servers.enabled()
     remembered_id = store.last_server(username)
     remembered = next((s for s in enabled if s.id == remembered_id), None)
-    unreachable = 0
+    order = ([remembered] if remembered else []) + [s for s in enabled if s is not remembered]
+    deadline = time.monotonic() + LOOKUP_BUDGET_SECONDS
+    missed = 0
     remembered_down = False
 
-    if remembered:
-        r = await xtream.check(remembered, username, password, timeout)
-        if r.found:
-            return r, 0, False
+    for server in order:
+        reason = guard.skip_reason(server.id)
+        if reason is None and time.monotonic() > deadline:
+            reason = "out of time"
+        if reason:
+            missed += 1
+            remembered_down = remembered_down or server is remembered
+            log.info("skipping server %s (%s)", server.name, reason)
+            continue
+        guard.record_call(server.id)
+        r = await xtream.check(server, username, password, timeout)
         if r.outcome == "unreachable":
-            unreachable += 1
-            remembered_down = True
-
-    others = [s for s in enabled if s is not remembered]
-    if others:
-        results = await xtream.check_many(others, username, password, timeout)
-        for r in results:
-            if r.outcome == "unreachable":
-                unreachable += 1
-                log.warning("server %s unreachable: %s", r.server.name, r.detail)
-        hit = next((r for r in results if r.found), None)
-        if hit:
-            return hit, unreachable, remembered_down
-    return None, unreachable, remembered_down
+            guard.mark_down(server.id)
+            missed += 1
+            remembered_down = remembered_down or server is remembered
+            log.warning("server %s unreachable: %s", server.name, r.detail)
+            continue
+        guard.mark_up(server.id)
+        if r.found:
+            return r, missed, remembered_down
+    return None, missed, remembered_down
 
 
 def create_app(settings: Settings | None = None, store: Store | None = None) -> Starlette:
@@ -104,6 +116,8 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     servers = ServerList(settings.servers_file)
     ip_limiter = SlidingWindow(settings.ip_limit, 300)
     user_fail_limiter = SlidingWindow(settings.user_fail_limit, 900)
+    cache = ResultCache(settings.cache_ok_seconds, settings.cache_fail_seconds)
+    guard = ServerGuard(settings.server_down_seconds, settings.server_rate_per_min)
 
     async def login(request: Request) -> JSONResponse:
         ip = client_ip(request, settings)
@@ -142,21 +156,47 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             store.log(username, ip, "no_servers")
             return error("server_unreachable")
 
-        result, unreachable, remembered_down = await find_account(
-            servers, store, username, password, settings.server_timeout)
-
-        if result is None:
-            if unreachable == len(enabled) or remembered_down:
-                # Their server (or every server) didn't answer – we couldn't actually check.
-                store.log(username, ip, "unreachable")
-                return error("server_unreachable")
-            if unreachable:
-                # Not found on the servers that answered; one may be down. Don't count a strike.
-                store.log(username, ip, "invalid_some_down")
+        fp = cache.fingerprint(username, password)
+        sig = servers_signature(enabled)
+        cached = cache.get(fp)
+        result = None
+        if cached and cached.outcome == "ok":
+            srv = next((x for x in enabled if x.id == cached.server_id), None)
+            still_valid = cached.expires_at is None or cached.expires_at > datetime.now(timezone.utc).isoformat()
+            if srv and still_valid:
+                result = xtream.CheckResult("ok", srv, expires_at=cached.expires_at,
+                                            max_connections=cached.max_connections)
+            else:
+                cache.drop(fp)   # its server was switched off/removed, or the account just expired
+        elif cached and cached.outcome == "invalid":
+            if cached.signature == sig:
+                # Same wrong login again: answered here, no IPTV server is asked.
+                user_fail_limiter.hit(user_key)
+                store.log(username, ip, "invalid_cached")
                 return error("invalid_credentials")
-            user_fail_limiter.hit(user_key)
-            store.log(username, ip, "invalid")
-            return error("invalid_credentials")
+            cache.drop(fp)       # servers changed since – check again
+
+        from_cache = result is not None
+        if result is None:
+            result, missed, remembered_down = await find_account(
+                servers, store, guard, username, password, settings.server_timeout)
+
+            if result is None:
+                if missed == len(enabled) or remembered_down:
+                    # Their server (or every server) couldn't be asked – we couldn't actually check.
+                    store.log(username, ip, "unreachable")
+                    return error("server_unreachable")
+                if missed:
+                    # Not found on the servers that were asked; a skipped one may have it. No strike.
+                    store.log(username, ip, "invalid_some_down")
+                    return error("invalid_credentials")
+                cache.put_invalid(fp, sig)
+                user_fail_limiter.hit(user_key)
+                store.log(username, ip, "invalid")
+                return error("invalid_credentials")
+
+            if result.outcome == "ok":
+                cache.put_ok(fp, result.server.id, result.expires_at, result.max_connections)
 
         store.remember_server(username, result.server.id)
 
@@ -175,7 +215,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
                     return error("too_many_devices")
             store.touch_device(username, device_id, device_name, app_version, ip)
 
-        store.log(username, ip, "ok", result.server.name)
+        store.log(username, ip, "ok_cached" if from_cache else "ok", result.server.name)
         return JSONResponse({
             "ok": True,
             "server": result.server.url,
@@ -196,6 +236,8 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         while True:
             await asyncio.sleep(3600)
             ip_limiter.sweep()
+            cache.sweep()
+            guard.sweep()
             user_fail_limiter.sweep()
             store.prune_log(90)
 
@@ -214,11 +256,13 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     ]
     if settings.admin_password:
         from .admin import admin_routes
-        routes += admin_routes(settings, store, servers)
+        routes += admin_routes(settings, store, servers, guard=guard, cache=cache)
 
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.store = store
     app.state.servers = servers
+    app.state.cache = cache
+    app.state.guard = guard
     return app
 
 

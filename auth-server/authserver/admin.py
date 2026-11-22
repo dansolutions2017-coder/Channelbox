@@ -64,7 +64,7 @@ def page(title: str, body: str) -> HTMLResponse:
     )
 
 
-def admin_routes(settings: Settings, store: Store, servers: ServerList) -> list[Route]:
+def admin_routes(settings: Settings, store: Store, servers: ServerList, guard=None, cache=None) -> list[Route]:
     secret = secrets.token_bytes(32)          # sessions end when the server restarts
     login_limiter = SlidingWindow(10, 900)
     pw_hash = hashlib.sha256(settings.admin_password.encode()).digest()
@@ -164,13 +164,22 @@ def admin_routes(settings: Settings, store: Store, servers: ServerList) -> list[
         notice = (f"<div class=msg>{e(msg)}</div>" if msg else "") + (f"<div class='msg err'>{e(err)}</div>" if err else "")
 
         all_servers = servers.all()
+
+        def status_pill(srv) -> str:
+            if not srv.enabled:
+                return '<span class=pill>Off</span>'
+            down = guard.down_for(srv.id) if guard else 0
+            if down:
+                return f'<span class="pill warn" title="Skipped until it answers again">Not answering · retry in {down}s</span>'
+            return '<span class="pill ok">On</span>'
+
         rows = []
         for i, s in enumerate(all_servers):
             rows.append(f"""<tr class="{'' if s.enabled else 'off'}">
 <td class=muted>{i + 1}</td>
 <td><form method=post action="/admin/servers/{e(s.id)}/edit" class=row>{csrf}
   <input type=text name=name value="{e(s.name)}" style="max-width:160px"><input type=text name=url value="{e(s.url)}"><button>Save</button></form></td>
-<td>{'<span class="pill ok">On</span>' if s.enabled else '<span class=pill>Off</span>'}</td>
+<td>{status_pill(s)}</td>
 <td style="white-space:nowrap">
  <form method=post action="/admin/servers/{e(s.id)}/up" class=inline>{csrf}<button title="Try earlier">▲</button></form>
  <form method=post action="/admin/servers/{e(s.id)}/down" class=inline>{csrf}<button title="Try later">▼</button></form>
@@ -204,7 +213,10 @@ The server it worked on last time is asked first, then all the others at once. I
 <form method=post action="/admin/servers/add" class=row style="margin-top:12px">{csrf}
 <input type=text name=name placeholder="Name (e.g. Main)" style="max-width:180px">
 <input type=text name=url placeholder="Xtream address, e.g. http://line.example.com:8080" required>
-<button class=primary>Add server</button></form></section>
+<button class=primary>Add server</button></form>
+<form method=post action="/admin/cache/clear" style="margin-top:10px">{csrf}
+<span class=muted>Correct logins are remembered for {settings.cache_ok_seconds // 60} min and wrong ones for {settings.cache_fail_seconds // 60} min, so customers opening the app don't call your servers every time ({len(cache) if cache else 0} remembered now).</span>
+<button>Forget remembered logins</button></form></section>
 
 <div class=grid>
 <section><h2>Test a login</h2>
@@ -331,6 +343,11 @@ The server it worked on last time is asked first, then all the others at once. I
         store.forget_server(u)
         return RedirectResponse(f"/admin?user={urllib.parse.quote(u)}&msg=" + urllib.parse.quote("Done – all servers are asked at their next login."), status_code=303)
 
+    async def clear_cache(request, f, session):
+        if cache:
+            cache.clear()
+        return back("Remembered logins cleared – every login is checked with the servers again.")
+
     return [
         Route("/admin/login", login_get, methods=["GET"]),
         Route("/admin/login", login_post, methods=["POST"]),
@@ -344,6 +361,7 @@ The server it worked on last time is asked first, then all the others at once. I
         Route("/admin/servers/{sid}/delete", guarded(delete_server), methods=["POST"]),
         Route("/admin/test", guarded(test_login), methods=["POST"]),
         Route("/admin/block", guarded(block), methods=["POST"]),
+        Route("/admin/cache/clear", guarded(clear_cache), methods=["POST"]),
         Route("/admin/unblock", guarded(unblock), methods=["POST"]),
         Route("/admin/devices/forget", guarded(forget_devices), methods=["POST"]),
         Route("/admin/forget-server", guarded(forget_server), methods=["POST"]),

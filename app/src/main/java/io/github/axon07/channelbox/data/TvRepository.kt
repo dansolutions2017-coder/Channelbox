@@ -254,9 +254,9 @@ class TvRepository(
      * Login server unreachable → carry on with the saved server.
      * Returns true when the server changed or the user was signed out (a reload is needed).
      */
-    private suspend fun syncAccount(showProgress: Boolean = true): Boolean {
+    private suspend fun syncAccount(showProgress: Boolean = true, force: Boolean = false): Boolean {
         val account = settings.current().playlists.firstOrNull { it.id == AccountAuth.PLAYLIST_ID } ?: return false
-        if (AccountAuth.recentlyChecked()) return false
+        if (!AccountAuth.shouldCheck(force)) return false
         if (showProgress) _state.value = RefreshState.Running("Signing in…")
         return when (val r = AccountAuth.login(http, account.xtUser, account.xtPass)) {
             is AccountAuth.Result.Ok -> if (r.server.trimEnd('/') != account.xtServer.trimEnd('/')) {
@@ -286,7 +286,8 @@ class TvRepository(
     // allowed on the main thread.
     private suspend fun refreshLocked(onChannels: suspend () -> Unit, forceVod: Boolean): Boolean {
         return try {
-            if (AccountAuth.enabled) syncAccount()
+            // A manual Reload (forceVod) always re-checks the account; automatic ones follow the 6-hour rule.
+            if (AccountAuth.enabled) syncAccount(force = forceVod)
             val s = settings.current()
             // Movies & shows are huge and change slowly: background reloads fetch them once a day.
             // A reload you start (or a new/changed playlist) always fetches them.

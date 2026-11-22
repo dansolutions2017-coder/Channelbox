@@ -115,18 +115,40 @@ auth log --limit 50
 Run **one** worker only (the default). Rate limits are kept in memory. After changing `.env`:
 `docker compose up -d`.
 
+## Failsafes: no unnecessary calls to your IPTV servers
+
+| Situation | What happens |
+|---|---|
+| Customer opens the app again (same login) | Answered from memory for `CACHE_OK_SECONDS` (30 min): **0 IPTV calls** |
+| Same wrong login repeated | Answered from memory for `CACHE_FAIL_SECONDS` (10 min): **0 IPTV calls** (still counts toward the rate limit) |
+| New or moved login | Servers asked **one at a time**, last-used server first, then your list order; **stops at the first match** |
+| A server doesn't answer | Skipped for `SERVER_DOWN_SECONDS` (2 min, doubling up to 10 min while it stays down) |
+| Rush or attack | At most `SERVER_RATE_PER_MIN` (30) checks a minute reach any one server |
+| One login check | Never spends more than 20 s asking servers in total |
+
+Memory is in the server process only, never on disk. Logins are remembered by a one-way
+fingerprint, never the password. A remembered login is checked again when its server is switched off
+or removed, or when the account's expiry date passes. A remembered wrong login is checked again when
+you change the server list. Blocking someone on the admin page works immediately. **Forget remembered
+logins** on the admin page makes every login get checked with the servers again.
+
+The app adds its own limit: it checks the account **at most every 6 hours** (plus right after
+sign-in and on a manual Reload), and waits 15 minutes before retrying if the login server can't be
+reached.
+
 ## How a login is decided
 
 1. Blocked? → refused.
-2. Ask the server this login worked on last time. Valid → done.
-3. Otherwise ask every other enabled server at the same time. The first in list order that knows the
-   login wins and is remembered.
-4. Valid password but expired / banned / disabled on that server → refused with that reason.
-5. Not found anywhere → "wrong username or password". If some server didn't answer, it isn't counted
+2. Remembered from the last 30 minutes? → answered without asking any server.
+3. Ask the server this login worked on last time. Valid → done.
+4. Otherwise ask the other enabled servers one at a time, in list order, skipping any that are down
+   or busy. The first that knows the login wins and is remembered.
+5. Valid password but expired / banned / disabled on that server → refused with that reason.
+6. Not found anywhere → "wrong username or password". If some server didn't answer, it isn't counted
    as a wrong attempt. If *their* last server, or every server, didn't answer → "try again shortly".
 
-Note: a wrong password is tried on every server, so each server sees the failed attempt. The rate
-limits above keep that small.
+Note: a new wrong password is tried on each server once (then remembered), so the servers see far fewer
+failed attempts.
 
 ## Backups
 

@@ -35,6 +35,11 @@ class Settings:
     server_timeout: float = field(default_factory=lambda: float(os.environ.get("SERVER_TIMEOUT", "8")))
     # Behind Caddy/nginx: take the client IP from X-Forwarded-For.
     trust_proxy: bool = field(default_factory=lambda: _env_bool("TRUST_PROXY", True))
+    # Failsafes against unnecessary calls to the IPTV servers (see guard.py).
+    cache_ok_seconds: int = field(default_factory=lambda: _env_int("CACHE_OK_SECONDS", 1800))
+    cache_fail_seconds: int = field(default_factory=lambda: _env_int("CACHE_FAIL_SECONDS", 600))
+    server_down_seconds: int = field(default_factory=lambda: _env_int("SERVER_DOWN_SECONDS", 120))
+    server_rate_per_min: int = field(default_factory=lambda: _env_int("SERVER_RATE_PER_MIN", 30))
     ip_limit: int = field(default_factory=lambda: _env_int("RATE_IP_PER_5MIN", 30))
     user_fail_limit: int = field(default_factory=lambda: _env_int("RATE_USER_FAILS_PER_15MIN", 8))
 

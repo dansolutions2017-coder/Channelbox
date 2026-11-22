@@ -60,6 +60,8 @@ def fake_server(accounts, style="auth0"):
                 body = {"user_info": {"auth": 1, "username": user, **acct[1]}, "server_info": {}}
             elif style == "http401":
                 self.send_response(401); self.end_headers(); return
+            elif style == "http500":
+                self.send_response(500); self.end_headers(); return
             else:
                 body = {"user_info": {"auth": 0}}
             data = json.dumps(body).encode()
@@ -137,7 +139,7 @@ def test_finds_the_right_server(env):
 
 
 def test_remembered_server_is_asked_alone_next_time(env):
-    base, store, _ = env["start"]()
+    base, store, _ = env["start"](cache_ok_seconds=0)   # no caching: show the remembered-server path
     login(base, "bob", "pwb")
     a_before, b_before = env["a_hits"]["n"], env["b_hits"]["n"]
     assert login(base, "bob", "pwb").json()["ok"]
@@ -154,7 +156,7 @@ def test_customer_moved_to_another_server(env):
 
 
 def test_list_order_decides_when_login_is_on_two_servers(env):
-    base, store, servers = env["start"]()
+    base, store, servers = env["start"](cache_ok_seconds=0)
     assert login(base, "dup", "pwd").json()["server"] == env["a_url"]
     store.forget_server("dup")
     servers.move("b", -1)                          # B first now
@@ -385,3 +387,116 @@ def test_admin_escapes_html(env):
     s, _ = admin_session(base)
     page = s.get(f"{base}/admin", timeout=5).text
     assert "<script>x</script>" not in page and "&lt;script&gt;" in page
+
+
+# ---- failsafes against unnecessary IPTV calls ------------------------------------------------
+
+def hits(env):
+    return env["a_hits"]["n"] + env["b_hits"]["n"]
+
+
+def test_correct_login_is_remembered_no_iptv_calls(env):
+    base, store, _ = env["start"]()
+    assert login(base, "bob", "pwb").json()["ok"]
+    before = hits(env)
+    for _ in range(5):
+        j = login(base, "bob", "pwb").json()
+        assert j["ok"] and j["server"] == env["b_url"] and j["max_connections"] == 1
+    assert hits(env) == before                     # 5 app starts, 0 IPTV calls
+    assert store.recent_log("bob", 1)[0][3] == "ok_cached"
+
+
+def test_remembered_login_needs_same_password(env):
+    base, *_ = env["start"]()
+    assert login(base, "bob", "pwb").json()["ok"]
+    assert login(base, "bob", "other").status_code == 401   # different password is checked, not cached
+
+
+def test_wrong_login_is_remembered_no_iptv_calls(env):
+    base, *_ = env["start"]()
+    assert login(base, "ghost", "x").status_code == 401
+    before = hits(env)
+    for _ in range(3):
+        assert login(base, "ghost", "x").json()["error"] == "invalid_credentials"
+    assert hits(env) == before                     # repeats don't reach any server
+
+
+def test_wrong_login_rechecked_after_servers_change(env):
+    base, store, servers = env["start"]()
+    servers.update("b", enabled=False)
+    assert login(base, "bob", "pwb").status_code == 401      # remembered as wrong…
+    servers.update("b", enabled=True)                         # …until the server list changes
+    assert login(base, "bob", "pwb").json()["ok"]
+
+
+def test_cached_login_dropped_when_its_server_is_switched_off(env):
+    base, store, servers = env["start"]()
+    assert login(base, "bob", "pwb").json()["ok"]
+    servers.update("b", enabled=False)
+    assert login(base, "bob", "pwb").status_code == 401
+
+
+def test_block_still_works_on_a_cached_login(env):
+    base, store, _ = env["start"]()
+    assert login(base, "bob", "pwb").json()["ok"]
+    store.block("bob")
+    assert login(base, "bob", "pwb").json()["error"] == "blocked"
+
+
+def test_servers_asked_one_at_a_time_and_stop_at_first_match(env):
+    base, store, servers = env["start"]()
+    c_srv, c_url, c_hits = fake_server({"bob": ("pwb", {"status": "Active"})})
+    try:
+        servers.add("C", c_url)                    # bob is also on C, after B
+        assert login(base, "bob", "pwb").json()["server"] == env["b_url"]
+        assert env["a_hits"]["n"] == 1 and env["b_hits"]["n"] == 1
+        assert c_hits["n"] == 0                    # never asked
+    finally:
+        c_srv.shutdown()
+
+
+def test_server_that_failed_is_skipped_for_a_while(env):
+    base, store, servers = env["start"]()
+    broken_srv, broken_url, broken_hits = fake_server({}, style="http500")
+    try:
+        servers.save([])
+        servers.add("Broken", broken_url)
+        servers.add("A", env["a_url"])
+        assert login(base, "alice", "pw1").json()["ok"]
+        assert broken_hits["n"] == 1
+        assert login(base, "alice", "wrongpw").status_code == 401
+        assert login(base, "lifetime", "pw4").json()["ok"]
+        assert broken_hits["n"] == 1               # skipped while marked down
+    finally:
+        broken_srv.shutdown()
+
+
+def test_admin_shows_server_not_answering(env):
+    base, store, servers = env["start"](admin_password="letmein")
+    servers.add("Dead", env["dead_url"])
+    login(base, "ghost", "x")
+    s, _ = admin_session(base)
+    page = s.get(f"{base}/admin", timeout=5).text
+    assert "Not answering" in page
+
+
+def test_per_server_rate_limit(env):
+    base, store, servers = env["start"](server_rate_per_min=2)
+    servers.update("b", enabled=False)
+    for user in ("u1", "u2", "u3", "u4"):
+        login(base, user, "x")
+    assert env["a_hits"]["n"] == 2                 # capped at 2 a minute
+    r = login(base, "alice", "pw1")
+    assert r.status_code == 503                    # A is busy: honest "try again shortly"
+
+
+def test_admin_can_clear_remembered_logins(env):
+    base, store, _ = env["start"](admin_password="letmein")
+    assert login(base, "bob", "pwb").json()["ok"]
+    s, _ = admin_session(base)
+    tok = csrf_of(s.get(f"{base}/admin", timeout=5).text)
+    r = s.post(f"{base}/admin/cache/clear", data={"csrf": tok}, timeout=5)
+    assert "cleared" in r.text
+    before = env["b_hits"]["n"]
+    assert login(base, "bob", "pwb").json()["ok"]
+    assert env["b_hits"]["n"] == before + 1        # checked with the server again

@@ -48,8 +48,24 @@ object AccountAuth {
     val notice = MutableStateFlow<String?>(null)
     val lastUsername = MutableStateFlow("")
 
+    /** Check the account with the login server at most this often (plus sign-in and manual Reload). */
+    private const val CHECK_EVERY_MS = 6 * 60 * 60 * 1000L
+    /** After the login server couldn't be reached, wait this long before trying again. */
+    private const val RETRY_AFTER_FAIL_MS = 15 * 60 * 1000L
+    /** Never ask twice within this window (e.g. sign-in immediately followed by the first load). */
+    private const val JUST_CHECKED_MS = 60 * 1000L
+
     @Volatile private var appContext: Context? = null
-    @Volatile private var lastOkAt = 0L
+
+    private fun prefs() = appContext?.getSharedPreferences("account", Context.MODE_PRIVATE)
+
+    // Kept across app restarts, so opening the app doesn't trigger a check every time.
+    private var lastOkAt: Long
+        get() = prefs()?.getLong("last_ok_at", 0L) ?: 0L
+        set(v) { prefs()?.edit()?.putLong("last_ok_at", v)?.apply() }
+    private var lastFailAt: Long
+        get() = prefs()?.getLong("last_fail_at", 0L) ?: 0L
+        set(v) { prefs()?.edit()?.putLong("last_fail_at", v)?.apply() }
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -57,15 +73,27 @@ object AccountAuth {
 
     /** A random id made once per install, so the login server can tell devices apart. */
     private fun deviceId(): String {
-        val prefs = appContext?.getSharedPreferences("account", Context.MODE_PRIVATE) ?: return ""
+        val prefs = prefs() ?: return ""
         prefs.getString("device_id", null)?.let { return it }
         val id = UUID.randomUUID().toString()
         prefs.edit().putString("device_id", id).apply()
         return id
     }
 
-    /** True if a successful check happened in the last minute (no need to ask again so soon). */
-    fun recentlyChecked(): Boolean = System.currentTimeMillis() - lastOkAt < 60_000
+    /**
+     * Should the app ask the login server now? [force] = a manual Reload: asks unless it just did.
+     * Otherwise at most every 6 hours, and not within 15 minutes of a failed attempt.
+     * A clock that went backwards counts as "due".
+     */
+    fun shouldCheck(force: Boolean): Boolean {
+        val now = System.currentTimeMillis()
+        val sinceOk = now - lastOkAt
+        if (sinceOk in 0 until JUST_CHECKED_MS) return false
+        if (force) return true
+        val sinceFail = now - lastFailAt
+        if (sinceFail in 0 until RETRY_AFTER_FAIL_MS) return false
+        return sinceOk !in 0 until CHECK_EVERY_MS
+    }
 
     suspend fun login(http: OkHttpClient, username: String, password: String): Result = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
@@ -91,16 +119,25 @@ object AccountAuth {
                         val server = json?.str("server")
                             ?: return@withContext Result.Unavailable("The login server gave no server address")
                         lastOkAt = System.currentTimeMillis()
+                        lastFailAt = 0L
                         Result.Ok(server, json.str("expires_at"), json.str("max_connections")?.toIntOrNull())
                     }
-                    response.code == 400 || response.code == 401 || response.code == 403 ->
+                    response.code == 400 || response.code == 401 || response.code == 403 -> {
+                        lastOkAt = 0L
                         Result.Rejected(json?.str("error") ?: "rejected", message ?: "Wrong username or password.")
-                    response.code == 429 ->
+                    }
+                    response.code == 429 -> {
+                        lastFailAt = System.currentTimeMillis()
                         Result.Unavailable(message ?: "Too many attempts. Please wait a few minutes and try again.")
-                    else -> Result.Unavailable(message ?: "The login server isn't answering (HTTP ${response.code}).")
+                    }
+                    else -> {
+                        lastFailAt = System.currentTimeMillis()
+                        Result.Unavailable(message ?: "The login server isn't answering (HTTP ${response.code}).")
+                    }
                 }
             }
         } catch (e: IOException) {
+            lastFailAt = System.currentTimeMillis()
             Result.Unavailable("Couldn't reach the login server. Check the internet connection and try again.")
         }
     }
