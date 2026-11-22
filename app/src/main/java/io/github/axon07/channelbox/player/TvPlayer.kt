@@ -323,6 +323,9 @@ class TvPlayer(
         candidates = when {
             stream.mime != null -> listOf(stream.mime)
             !isHttp -> listOf(null) // rtsp://, rtmp://, udp://, file:// – the player knows these
+            // A plain video file (Xtream movies and episodes: …/123.mkv, .mp4 …) is never HLS/DASH:
+            // trying those too only hides the real error and opens extra connections.
+            stream.drm == null && isVideoFile(stream.url) -> listOf(null)
             // DRM-protected IPTV streams are almost always DASH, even without ".mpd" in the link.
             stream.drm != null -> listOf(StreamSpecs.MIME_DASH, null, StreamSpecs.MIME_HLS)
             else -> listOf(null, StreamSpecs.MIME_HLS, StreamSpecs.MIME_DASH)
@@ -331,12 +334,21 @@ class TvPlayer(
         confirmed = false
         retries = 0
         refusals = 0
+        firstError = null
         widevineL3 = false
         start()
     }
 
     /** Times in a row the provider refused this stream (connection limit), retried quietly. */
     private var refusals = 0
+
+    /** The first error for this stream: the real reason, shown instead of a later format guess's error. */
+    private var firstError: String? = null
+
+    private fun isVideoFile(url: String): Boolean {
+        val path = runCatching { Uri.parse(url).path }.getOrNull()?.lowercase() ?: return false
+        return VIDEO_FILE_EXTENSIONS.any { path.endsWith(".$it") }
+    }
 
     private fun httpCode(error: PlaybackException): Int? {
         var cause: Throwable? = error
@@ -479,10 +491,25 @@ class TvPlayer(
             return
         }
         if (!isLive) {
-            _status.value = PlayerStatus.Error("Can't play this (${describe(error)})")
+            // Movies & episodes: a refusal is usually the previous stream's connection still closing on
+            // a one-connection account – wait a moment and ask again before showing an error.
+            val refusedCode = httpCode(error)
+            if (!confirmed && refusedCode != null && refusedCode in REFUSED && refusals < 3) {
+                refusals++
+                val current = spec
+                _status.value = PlayerStatus.Buffering
+                handler.removeCallbacksAndMessages(null)
+                handler.postDelayed({ if (spec === current && current != null) start() }, 1_500L * refusals)
+                return
+            }
+            val reason = describe(error)
+            if (firstError == null) firstError = reason
             if (!confirmed && attempt < candidates.lastIndex) {
                 attempt++
+                _status.value = PlayerStatus.Buffering
                 handler.post { start() }
+            } else {
+                _status.value = PlayerStatus.Error("Can't play this (${firstError ?: reason})")
             }
             return
         }
@@ -531,7 +558,7 @@ class TvPlayer(
             return
         }
         if (!isLive) {
-            _status.value = PlayerStatus.Error("Can't play this ($reason)")
+            _status.value = PlayerStatus.Error("Can't play this (${firstError ?: reason})")
             return
         }
         scheduleRetry("Channel unavailable – retrying… ($reason)")
@@ -706,6 +733,8 @@ class TvPlayer(
     companion object {
         /** HTTP codes providers use for "refused" / "too many connections". */
         private val REFUSED = setOf(401, 403, 429, 456, 458, 509)
+        /** Links ending like this are plain video files (never HLS/DASH playlists). */
+        private val VIDEO_FILE_EXTENSIONS = setOf("mkv", "mp4", "m4v", "avi", "mov", "wmv", "flv", "webm", "mpg", "mpeg", "3gp")
         const val DEFAULT_USER_AGENT = UserAgent.DEFAULT
         private const val KEY_SPEED = "bandwidth_estimate"
         /** First run: about 720p on most providers, then up as soon as the speed is known. */
